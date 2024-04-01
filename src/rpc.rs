@@ -1,23 +1,35 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use reqwest::header;
+use bitcoin::consensus::Encodable as _;
+use reqwest::{header, IntoUrl};
 use serde::{de, Deserialize, Serialize};
+use tracing::instrument;
 
-#[derive(Debug)]
+use crate::block;
+
+#[derive(Debug, Clone)]
 pub struct Client {
 	pub http: reqwest::Client,
+	pub url: reqwest::Url,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Param {
-	pub rules: &'static [&'static str],
+pub enum Param<'r> {
+	Option {
+		#[serde(skip_serializing_if = "Option::is_none")]
+		rules: Option<&'r [&'r str]>,
+		#[serde(skip_serializing_if = "Option::is_none")]
+		capabilities: Option<&'r [&'r str]>,
+	},
+	String(&'r str),
 }
 
 #[derive(Debug, Serialize)]
-pub struct Request {
-	pub jsonrpc: &'static str,
-	pub id: &'static str,
-	pub method: &'static str,
-	pub params: &'static [Param],
+pub struct Request<'r> {
+	pub jsonrpc: &'r str,
+	pub id: &'r str,
+	pub method: &'r str,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub params: Option<&'r [Param<'r>]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +55,8 @@ impl From<reqwest::Error> for Error {
 }
 
 impl Client {
-	pub fn new(username: &str, password: &str) -> Self {
+	pub fn new<U: IntoUrl>(url: U, username: &str, password: &str) -> Result<Self, reqwest::Error> {
+		let url = url.into_url()?;
 		let mut headers = header::HeaderMap::new();
 
 		headers.insert(
@@ -60,23 +73,52 @@ impl Client {
 			.build()
 			.expect("failed to build http client");
 
-		Self { http }
+		Ok(Self { http, url })
 	}
 
-	async fn request<T>(&self, request: &Request) -> Result<T, Error>
+	pub async fn submit_block(&self, block: &bitcoin::Block) -> Result<(), Error> {
+		let mut data = vec![];
+		block.consensus_encode(&mut data).unwrap();
+
+		self.request(&Request {
+			jsonrpc: "1.0",
+			id: env!("CARGO_PKG_NAME"),
+			method: "submitblock",
+			params: Some(&[Param::String(&hex::encode(data))]),
+		})
+		.await
+	}
+
+	pub async fn get_block_template(&self) -> Result<block::Template, Error> {
+		self.request(&Request {
+			jsonrpc: "1.0",
+			id: env!("CARGO_PKG_NAME"),
+			method: "getblocktemplate",
+			params: Some(&[Param::Option {
+				rules: Some(&["segwit"]),
+				capabilities: Some(&["coinbasetxn", "workid", "coinbase/append"]),
+			}]),
+		})
+		.await
+	}
+
+	#[instrument(name = "rpc", skip(self))]
+	async fn request<T>(&self, request: &Request<'_>) -> Result<T, Error>
 	where
 		T: de::DeserializeOwned,
 	{
 		let response = self
 			.http
-			.post("http://127.0.0.1:18332")
+			.post(self.url.clone())
 			.json(request)
 			.send()
-			.await?
-			.json::<Response<T>>()
 			.await?;
 
-		match response {
+		tracing::Span::current().record("status", &response.status().to_string());
+
+		let body = response.json::<Response<T>>().await?;
+
+		let response = match body {
 			Response {
 				result: Some(result),
 				..
@@ -88,7 +130,11 @@ impl Client {
 				code: 0,
 				message: "no response".to_string(),
 			}),
-		}
+		};
+
+		tracing::info!("request complete");
+
+		response
 	}
 }
 
@@ -100,9 +146,9 @@ macro_rules! impl_basic_rpc {
 				pub async fn $name(&self) -> Result<$result, $crate::rpc::Error> {
 					self.request(&Request {
 						jsonrpc: "1.0",
-						id: "1",
+						id: env!("CARGO_PKG_NAME"),
 						method: $method,
-						params: &[],
+						params: None,
 					})
 					.await
 				}
@@ -117,6 +163,6 @@ pub struct NetworkInfo {
 }
 
 impl_basic_rpc! {
-	// get_block_template, "getblocktemplate" -> BlockTemplate,
-	get_network_info, "getnetworkinfo" -> NetworkInfo
+	get_network_info, "getnetworkinfo" -> NetworkInfo,
+	get_new_address, "getnewaddress" -> String
 }
