@@ -38,11 +38,10 @@ fn ch(e: u32, f: u32, g: u32) -> u32 {
 
 @group(0) @binding(0) var<storage, read> inputHeader: array<u32, 20>;
 @group(0) @binding(1) var<storage, read> inputTarget: array<u32, 8>;
-@group(0) @binding(2) var<storage, read_write> atomicFlag: atomic<u32>;
-@group(0) @binding(3) var<storage, read_write> outputHeader: array<u32, 20>;
+@group(0) @binding(2) var<storage, read_write> outputHeader: array<u32, 20>;
 
-const workgroupSize: u32 = 64u;
-const numWorkgroups: u32 = 8u;
+const workgroupSize: u32 = 128u;
+const numWorkgroups: u32 = 32u;
 const numThreads: u32 = workgroupSize * numWorkgroups;
 
 fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
@@ -283,7 +282,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 		if (meets_target(hash, inputTarget)) {
 			outputHeader = localHeader;
-			atomicStore(&atomicFlag, 1u);
 
 			break;
 		}

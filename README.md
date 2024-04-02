@@ -3,12 +3,12 @@
 GPU and CPU miner for Bitcoin.
 
 ```powershell
-Usage: miner.exe [OPTIONS]
+Usage: miner [OPTIONS] --username <USERNAME> --password <PASSWORD> --address <ADDRESS>
 
 Options:
-  -u, --username <USERNAME>  Defaults to the RPC_USERNAME environment variable if not set
-  -p, --password <PASSWORD>  Defaults to the RPC_PASSWORD environment variable if not set
-  -a, --address <ADDRESS>    Defaults to the RPC_ADDRESS environment variable if not set
+  -u, --username <USERNAME>  RPC username [env: RPC_USERNAME=]
+  -p, --password <PASSWORD>  RPC password [env: RPC_PASSWORD=]
+  -a, --address <ADDRESS>    RPC address url [env: RPC_ADDRESS=]
   -g, --gpu                  Use the GPU for mining
   -h, --help                 Print help
   -V, --version              Print version

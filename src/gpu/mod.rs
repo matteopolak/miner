@@ -12,7 +12,6 @@ pub struct Hasher {
 	bind_group: wgpu::BindGroup,
 	input_header_buffer: wgpu::Buffer,
 	input_target_buffer: wgpu::Buffer,
-	pub atomic_flag_buffer: wgpu::Buffer,
 	output_buffer: wgpu::Buffer,
 	mappable_buffer: wgpu::Buffer,
 	queue: wgpu::Queue,
@@ -41,7 +40,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-// TODO: move hash.rs into here
 impl Hasher {
 	pub fn new() -> Result<Self, Error> {
 		let instance = wgpu::Instance::default();
@@ -54,7 +52,6 @@ impl Hasher {
 
 		let input_header_buffer = device.create_buffer_init(&options::INPUT_HEADER_DESC);
 		let input_target_buffer = device.create_buffer_init(&options::INPUT_TARGET_DESC);
-		let atomic_flag_buffer = device.create_buffer_init(&options::ATOMIC_FLAG_DESC);
 		let output_buffer = device.create_buffer(&options::OUTPUT_DESC);
 		let mappable_buffer = device.create_buffer(&options::MAPPABLE_DESC);
 
@@ -62,7 +59,6 @@ impl Hasher {
 			label: Some("Compute Bind Group"),
 			layout: &bind_group_layout,
 			entries: &[
-				// Bind the input buffer
 				wgpu::BindGroupEntry {
 					binding: 0,
 					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -71,7 +67,6 @@ impl Hasher {
 						size: None,
 					}),
 				},
-				// Bind the input size buffer
 				wgpu::BindGroupEntry {
 					binding: 1,
 					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -80,18 +75,8 @@ impl Hasher {
 						size: None,
 					}),
 				},
-				// Bind the atomic flag buffer
 				wgpu::BindGroupEntry {
 					binding: 2,
-					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: &atomic_flag_buffer,
-						offset: 0,
-						size: None,
-					}),
-				},
-				// Bind the output buffer
-				wgpu::BindGroupEntry {
-					binding: 3,
 					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
 						buffer: &output_buffer,
 						offset: 0,
@@ -120,7 +105,6 @@ impl Hasher {
 			bind_group,
 			input_header_buffer,
 			input_target_buffer,
-			atomic_flag_buffer,
 			output_buffer,
 			mappable_buffer,
 			queue,
@@ -169,10 +153,6 @@ impl Hasher {
 		self.queue
 			.write_buffer(&self.input_target_buffer, 0, &target);
 
-		// reset the atomic flag buffer
-		self.queue
-			.write_buffer(&self.atomic_flag_buffer, 0, &[0; 4]);
-
 		let mut encoder = self
 			.device
 			.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -188,7 +168,7 @@ impl Hasher {
 			compute_pass.set_pipeline(&self.compute_pipeline);
 			compute_pass.set_bind_group(0, &self.bind_group, &[]);
 			// NOTE: when modifying this value, also change `numWorkgroups` in sha256.wgsl
-			compute_pass.dispatch_workgroups(8, 1, 1);
+			compute_pass.dispatch_workgroups(32, 1, 1);
 		}
 
 		encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.mappable_buffer, 0, 80);
