@@ -1,3 +1,5 @@
+//! Adapted from https://github.com/MarcoCiaramella/sha256-gpu
+
 fn swap_endianess32(val: u32) -> u32 {
 	return ((val >> 24u) & 0xffu) | ((val >> 8u) & 0xff00u) | ((val << 8u) & 0xff0000u) | ((val << 24u) & 0xff000000u);
 }
@@ -52,7 +54,7 @@ fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
 		0, 0, 0, 0, 0, 0, swap_endianess32(640u)
 	);
 
-	var hash = array<u32, 8>(
+	var hash = array<u32, 8> (
 		0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
 		0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
 	);

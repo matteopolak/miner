@@ -1,12 +1,7 @@
 #![feature(never_type)]
-#![feature(const_trait_impl)]
 
 use clap::Parser;
-
-mod block;
-mod gpu;
-mod miner;
-mod rpc;
+use miner::rpc;
 
 #[derive(Parser)]
 #[command(version, about, author)]

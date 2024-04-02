@@ -1,3 +1,13 @@
+use std::borrow::Cow;
+
+pub const SHADER_DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
+	label: Some("SHA-256 Shader"),
+	source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(concat!(
+		env!("CARGO_MANIFEST_DIR"),
+		"/shaders/sha256.wgsl"
+	)))),
+};
+
 pub const BIND_GROUP_LAYOUT: wgpu::BindGroupLayoutDescriptor = wgpu::BindGroupLayoutDescriptor {
 	label: Some("Compute Bind Group Layout"),
 	entries: &[

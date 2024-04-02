@@ -1,7 +1,7 @@
 mod options;
 
 use futures::executor::block_on;
-use wgpu::{include_wgsl, util::DeviceExt as _};
+use wgpu::util::DeviceExt as _;
 
 #[derive(Debug)]
 pub struct Hasher {
@@ -34,7 +34,7 @@ impl Hasher {
 
 		let adapter = Self::request_adapter(&instance)?;
 		let (device, queue) = Self::request_device(&adapter)?;
-		let shader = device.create_shader_module(Self::shader_module_desc());
+		let shader = device.create_shader_module(options::SHADER_DESC);
 
 		let bind_group_layout = device.create_bind_group_layout(&options::BIND_GROUP_LAYOUT);
 
@@ -194,9 +194,5 @@ impl Hasher {
 				.map_err(|_| Error::NoDevice)?;
 
 		Ok((device, queue))
-	}
-
-	fn shader_module_desc() -> wgpu::ShaderModuleDescriptor<'static> {
-		include_wgsl!("../../sha256.wgsl")
 	}
 }
