@@ -1,53 +1,41 @@
 #![feature(never_type)]
 
 use clap::Parser;
-use miner::rpc;
+use miner::{rpc, Error};
 
 #[derive(Parser)]
 #[command(version, about, author)]
 struct Args {
-	/// Defaults to the RPC_USERNAME environment variable if not set
-	#[arg(short, long)]
-	pub username: Option<String>,
-	/// Defaults to the RPC_PASSWORD environment variable if not set
-	#[arg(short, long)]
-	pub password: Option<String>,
-	/// Defaults to the RPC_ADDRESS environment variable if not set
-	#[arg(short, long)]
-	pub address: Option<String>,
+	/// RPC username
+	#[arg(short, long, env = "RPC_USERNAME")]
+	pub username: String,
+	/// RPC password
+	#[arg(short, long, env = "RPC_PASSWORD")]
+	pub password: String,
+	/// RPC address url
+	#[arg(short, long, env = "RPC_ADDRESS")]
+	pub address: String,
 	/// Use the GPU for mining
 	#[arg(short, long)]
 	pub gpu: bool,
 }
 
-fn main() -> Result<!, rpc::Error> {
+fn main() -> Result<!, Error> {
 	let args = Args::parse();
 
-	let username = args
-		.username
-		.or_else(|| std::env::var("RPC_USERNAME").ok())
-		.expect("RPC_USERNAME environment variable is not set");
-
-	let password = args
-		.password
-		.or_else(|| std::env::var("RPC_PASSWORD").ok())
-		.expect("RPC_PASSWORD environment variable is not set");
-
-	let address = args
-		.address
-		.or_else(|| std::env::var("RPC_ADDRESS").ok())
-		.expect("RPC_ADDRESS environment variable is not set");
-
 	tracing_subscriber::fmt().init();
-	rayon::ThreadPoolBuilder::new()
-		.num_threads(num_cpus::get())
-		.build_global()
-		.unwrap();
 
-	let rpc = rpc::Client::new(address, &username, &password);
+	if !args.gpu {
+		rayon::ThreadPoolBuilder::new()
+			.num_threads(num_cpus::get())
+			.build_global()
+			.unwrap();
+	}
 
-	let address = rpc.get_new_address()?;
-	let miner = miner::Miner::new(rpc, address, args.gpu);
+	let rpc = rpc::Client::new(args.address, &args.username, &args.password);
+
+	let wallet_address = rpc.get_new_address()?;
+	let miner = miner::Miner::new(rpc, wallet_address, args.gpu);
 
 	miner.mine()
 }

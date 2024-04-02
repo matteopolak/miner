@@ -1,4 +1,4 @@
-use std::io;
+use std::{fmt, io};
 
 use serde::Deserialize;
 
@@ -7,6 +7,14 @@ pub struct Error {
 	pub code: i32,
 	pub message: String,
 }
+
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{} (code {})", self.message, self.code)
+	}
+}
+
+impl std::error::Error for Error {}
 
 impl From<io::Error> for Error {
 	fn from(value: io::Error) -> Self {

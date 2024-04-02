@@ -42,7 +42,7 @@ fn ch(e: u32, f: u32, g: u32) -> u32 {
 @group(0) @binding(3) var<storage, read_write> outputHeader: array<u32, 20>;
 
 const workgroupSize: u32 = 64u;
-const numWorkgroups: u32 = 256u;
+const numWorkgroups: u32 = 8u;
 const numThreads: u32 = workgroupSize * numWorkgroups;
 
 fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
@@ -289,12 +289,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 		}
 
 		if (0xffffffffu - nonce < numThreads) {
-			if (atomicLoad(&atomicFlag) != 0u) {
-				break;
-			}
-
-			localHeader[17] += 1u;
-			nonce = index;
+			break;
 		} else {
 			nonce += numThreads;
 		}

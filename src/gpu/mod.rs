@@ -1,5 +1,7 @@
 mod options;
 
+use std::fmt;
+
 use futures::executor::block_on;
 use wgpu::util::DeviceExt as _;
 
@@ -24,8 +26,20 @@ pub struct Hasher {
 pub enum Error {
 	NoAdapter,
 	NoDevice,
-	Read,
+	BufferAsync(wgpu::BufferAsyncError),
 }
+
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::NoAdapter => write!(f, "no adapter found"),
+			Self::NoDevice => write!(f, "no device found"),
+			Self::BufferAsync(e) => write!(f, "buffer async error: {}", e),
+		}
+	}
+}
+
+impl std::error::Error for Error {}
 
 // TODO: move hash.rs into here
 impl Hasher {
@@ -120,7 +134,7 @@ impl Hasher {
 		let command = self.create_command_buffer(block, target);
 
 		self.queue.submit(Some(command));
-		self.wait_for_next().map_err(|_| Error::Read)
+		self.wait_for_next().map_err(Error::BufferAsync)
 	}
 
 	fn wait_for_next(&self) -> Result<[u8; 80], wgpu::BufferAsyncError> {
@@ -174,11 +188,10 @@ impl Hasher {
 			compute_pass.set_pipeline(&self.compute_pipeline);
 			compute_pass.set_bind_group(0, &self.bind_group, &[]);
 			// NOTE: when modifying this value, also change `numWorkgroups` in sha256.wgsl
-			compute_pass.dispatch_workgroups(256, 1, 1);
+			compute_pass.dispatch_workgroups(8, 1, 1);
 		}
 
 		encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.mappable_buffer, 0, 80);
-
 		encoder.finish()
 	}
 

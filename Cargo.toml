@@ -6,13 +6,13 @@ edition = "2021"
 [[bin]]
 name = "miner"
 path = "src/main.rs"
-required-features = ["bin"]
+required-features = ["cli"]
 
 [dependencies]
 base64 = "0.22"
 bitcoin = "0.31"
 bytemuck = "1.15.0"
-clap = { version = "4", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive", "env"], optional = true }
 futures = "0.3.30"
 hex = { version = "0.4", features = ["serde"] }
 num_cpus = "1"
@@ -25,5 +25,5 @@ ureq = { version = "2", features = ["json"] }
 wgpu = "0.19.3"
 
 [features]
-default = []
-bin = ["dep:clap", "dep:tracing-subscriber"]
+default = ["cli"]
+cli = ["dep:clap", "dep:tracing-subscriber"]
