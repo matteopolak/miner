@@ -117,11 +117,11 @@ impl Hasher {
 	pub fn process(&self, block: [u8; 80], target: [u8; 32]) -> Result<[u8; 80], Error> {
 		let command = self.create_command_buffer(block, target);
 
-		self.queue.submit(Some(command));
-		self.wait_for_next().map_err(Error::BufferAsync)
+		let idx = self.queue.submit(Some(command));
+		self.wait_for(idx).map_err(Error::BufferAsync)
 	}
 
-	fn wait_for_next(&self) -> Result<[u8; 80], wgpu::BufferAsyncError> {
+	fn wait_for(&self, idx: wgpu::SubmissionIndex) -> Result<[u8; 80], wgpu::BufferAsyncError> {
 		let buffer_slice = self.mappable_buffer.slice(..);
 		let (tx, rx) = oneshot::channel();
 
@@ -129,7 +129,8 @@ impl Hasher {
 			tx.send(res).unwrap();
 		});
 
-		self.device.poll(wgpu::Maintain::Wait);
+		self.device
+			.poll(wgpu::Maintain::WaitForSubmissionIndex(idx));
 
 		rx.recv().unwrap()?;
 
@@ -168,7 +169,7 @@ impl Hasher {
 			compute_pass.set_pipeline(&self.compute_pipeline);
 			compute_pass.set_bind_group(0, &self.bind_group, &[]);
 			// NOTE: when modifying this value, also change `numWorkgroups` in sha256.wgsl
-			compute_pass.dispatch_workgroups(32, 1, 1);
+			compute_pass.dispatch_workgroups(64, 1, 1);
 		}
 
 		encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.mappable_buffer, 0, 80);
