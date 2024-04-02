@@ -270,15 +270,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 	var hash = array<u32, 8> (
 		0, 0xffffffff, 0, 0, 0, 0, 0, 0
-	);//sha256_32byte(sha256_80byte(localHeader));
-
-	for (var i = 0u; i < 8u; i++) {
-		outputHeader[i] = hash[i];
-	}
-
-	for (var i = 9u; i < (9u + 8u); i++) {
-		outputHeader[i] = inputTarget[i - 9];
-	}
+	);
 
 	let index: u32 = global_id.x;
 	var nonce: u32 = index;
