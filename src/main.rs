@@ -20,7 +20,7 @@ struct Args {
 	pub address: Option<String>,
 }
 
-fn main() {
+fn main() -> Result<!, rpc::Error> {
 	let args = Args::parse();
 
 	let username = args
@@ -38,10 +38,16 @@ fn main() {
 		.or_else(|| std::env::var("RPC_ADDRESS").ok())
 		.expect("RPC_ADDRESS environment variable is not set");
 
+	tracing_subscriber::fmt().init();
+	rayon::ThreadPoolBuilder::new()
+		.num_threads(num_cpus::get())
+		.build_global()
+		.unwrap();
+
 	let rpc = rpc::Client::new(address, &username, &password);
 
-	let address = rpc.get_new_address().unwrap();
+	let address = rpc.get_new_address()?;
 	let miner = miner::Miner::new(rpc, address);
 
-	miner.mine().unwrap();
+	miner.mine()
 }

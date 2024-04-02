@@ -1,6 +1,7 @@
 use std::{ops::Range, str::FromStr as _, sync::mpsc};
 
 use bitcoin::hashes::Hash as _;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{block, rpc};
 
@@ -28,15 +29,15 @@ impl Miner {
 
 		std::thread::scope(|s| {
 			s.spawn(|| self.poll_new_block(tx, poll_id));
-		});
 
-		loop {
-			let block = self.mine_block(template, &rx);
+			loop {
+				let block = self.mine_block(template, &rx);
 
-			self.rpc.submit_block(&block)?;
+				self.rpc.submit_block(&block)?;
 
-			template = self.rpc.get_block_template(None)?;
-		}
+				template = self.rpc.get_block_template(None)?;
+			}
+		})
 	}
 
 	pub fn mine_block(
@@ -45,22 +46,37 @@ impl Miner {
 		new: &mpsc::Receiver<block::Template>,
 	) -> bitcoin::Block {
 		let (mut target, mut nonce_range, mut block) = self.process_template(template);
+		let mut encoded_header = encode_block_header(&block.header, nonce_range.start);
 
 		loop {
-			for nonce in nonce_range.clone() {
+			let start = std::time::Instant::now();
+
+			// TODO: reuse the state of the block, only hash the nonce at the end
+			let nonce = nonce_range.clone().into_par_iter().find_any(|&nonce| {
+				let mut encoded_header = encoded_header;
+				encoded_header[76..80].copy_from_slice(&nonce.to_le_bytes());
+
+				let hash = bitcoin::BlockHash::hash(&encoded_header);
+
+				hash < target
+			});
+
+			let hashes = nonce_range.end - nonce_range.start;
+			let elapsed = start.elapsed();
+
+			tracing::info!(rate = format_hash_rate(hashes, elapsed), "hash rate");
+
+			if let Some(nonce) = nonce {
 				block.header.nonce = nonce;
 
-				let hash = block.block_hash();
+				tracing::info!(hash = ?block.block_hash(), "found block hash");
 
-				if hash < target {
-					tracing::info!(hash = ?hash, "found block hash");
-
-					return block;
-				}
+				return block;
 			}
 
 			// if we didn't find a valid nonce, increase the timestamp
 			block.header.time += 1;
+			encoded_header[76..80].copy_from_slice(&block.header.time.to_le_bytes());
 
 			let message = new.try_recv();
 
@@ -124,4 +140,46 @@ impl Miner {
 			txdata: vec![transaction],
 		}
 	}
+}
+
+fn format_hash_rate(hashes: u32, elapsed: std::time::Duration) -> String {
+	let hashes = hashes as f64;
+	let elapsed = elapsed.as_secs_f64();
+
+	let mut rate = hashes / elapsed;
+
+	// if the rate is less than 1000, we can just return it
+	// otherwise, format with the higher ones
+	if rate < 1_000.0 {
+		return format!("{:.2} H/s", rate);
+	}
+
+	rate /= 1_000.0;
+
+	if rate < 1_000.0 {
+		return format!("{:.2} KH/s", rate);
+	}
+
+	rate /= 1_000.0;
+
+	if rate < 1_000.0 {
+		return format!("{:.2} MH/s", rate);
+	}
+
+	rate /= 1_000.0;
+
+	format!("{:.2} GH/s", rate)
+}
+
+fn encode_block_header(header: &bitcoin::block::Header, nonce: u32) -> [u8; 80] {
+	let mut data = Vec::with_capacity(4 + 32 + 32 + 4 + 4 + 4);
+
+	data.extend_from_slice(&header.version.to_consensus().to_le_bytes());
+	data.extend_from_slice(&header.prev_blockhash.to_byte_array());
+	data.extend_from_slice(&header.merkle_root.to_byte_array());
+	data.extend_from_slice(&header.time.to_le_bytes());
+	data.extend_from_slice(&header.bits.to_consensus().to_le_bytes());
+	data.extend_from_slice(&nonce.to_le_bytes());
+
+	data.try_into().expect("invalid block header")
 }
