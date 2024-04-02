@@ -1,25 +1,32 @@
 use std::{ops::Range, str::FromStr as _, sync::mpsc};
 
-use bitcoin::hashes::Hash as _;
+use bitcoin::{consensus::Decodable, hashes::Hash as _};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{block, rpc};
+use crate::{block, gpu, rpc};
 
 // 61a01000-89d4-4c64-974b-84826c01a3ea
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Miner {
 	pub rpc: rpc::Client,
 	pub address: bitcoin::Address,
+	pub gpu: Option<gpu::Hasher>,
 }
 
 impl Miner {
-	pub fn new(rpc: rpc::Client, address: String) -> Self {
+	pub fn new(rpc: rpc::Client, address: String, gpu: bool) -> Self {
 		let address = bitcoin::Address::from_str(&address)
 			.expect("invalid address")
 			.require_network(bitcoin::Network::Bitcoin)
 			.expect("invalid network");
 
-		Self { rpc, address }
+		let gpu = if gpu {
+			Some(gpu::Hasher::new().expect("failed to create hasher"))
+		} else {
+			None
+		};
+
+		Self { rpc, address, gpu }
 	}
 
 	pub fn mine(&self) -> Result<!, rpc::Error> {
@@ -30,14 +37,47 @@ impl Miner {
 		std::thread::scope(|s| {
 			s.spawn(|| self.poll_new_block(tx, poll_id));
 
-			loop {
-				let block = self.mine_block(template, &rx);
+			if let Some(hasher) = &self.gpu {
+				loop {
+					let block = self.mine_block_gpu(hasher, template);
 
-				self.rpc.submit_block(&block)?;
+					self.rpc.submit_block(&block)?;
 
-				template = self.rpc.get_block_template(None)?;
+					template = self.rpc.get_block_template(None)?;
+				}
+			} else {
+				loop {
+					let block = self.mine_block(template, &rx);
+
+					self.rpc.submit_block(&block)?;
+
+					template = self.rpc.get_block_template(None)?;
+				}
 			}
 		})
+	}
+
+	pub fn mine_block_gpu(
+		&self,
+		hasher: &gpu::Hasher,
+		template: block::Template,
+		//new: &mpsc::Receiver<block::Template>,
+	) -> bitcoin::Block {
+		let (/*mut*/ target, _, /*mut*/ block) = self.process_template(template);
+		let /*mut*/ encoded_header = encode_block_header(&block.header, 0);
+
+		/*	let message = new.try_recv();
+
+		if let Ok(template) = message {
+				(target, _, block) = self.process_template(template);
+				encoded_header = encode_block_header(&block.header, 0);
+			}*/
+
+		let output_block = hasher
+			.process(encoded_header, target.to_byte_array())
+			.unwrap();
+
+		bitcoin::Block::consensus_decode(&mut &output_block[..]).unwrap()
 	}
 
 	pub fn mine_block(

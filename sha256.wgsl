@@ -1,5 +1,5 @@
 fn swap_endianess32(val: u32) -> u32 {
-	return ((val>>24u) & 0xffu) | ((val>>8u) & 0xff00u) | ((val<<8u) & 0xff0000u) | ((val<<24u) & 0xff000000u);
+	return ((val >> 24u) & 0xffu) | ((val >> 8u) & 0xff00u) | ((val << 8u) & 0xff0000u) | ((val << 24u) & 0xff000000u);
 }
 
 fn shw(x: u32, n: u32) -> u32 {
@@ -34,8 +34,8 @@ fn ch(e: u32, f: u32, g: u32) -> u32 {
 	return (e & f) ^ ((~e) & g);
 }
 
-@group(0) @binding(0) var<storage, read> inputHeader: array<u32>;
-@group(0) @binding(1) var<storage, read> inputTarget: array<u32>;
+@group(0) @binding(0) var<storage, read> inputHeader: array<u32, 20>;
+@group(0) @binding(1) var<storage, read> inputTarget: array<u32, 8>;
 @group(0) @binding(2) var<storage, read_write> atomicFlag: atomic<u32>;
 @group(0) @binding(3) var<storage, read_write> outputHeader: array<u32, 20>;
 
@@ -44,10 +44,12 @@ const numWorkgroups: u32 = 256u;
 const numThreads: u32 = workgroupSize * numWorkgroups;
 
 fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
+	// padding
 	var message = array<u32, 32>(
 		m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
 		m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15],
-		0x80000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		m[16], m[17], m[18], m[19], 0x00000080, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, swap_endianess32(640u)
 	);
 
 	var hash = array<u32, 8>(
@@ -68,9 +70,9 @@ fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
 
 	var w: array<u32, 64> = array<u32, 64>();
 
-	let num_chunks = 2u;
+	for (var i = 0u; i < 2u; i++) {
+		let chunk_index = i * 16u;
 
-	for (var i = 0u; i < num_chunks; i++) {
 		var a = hash[0];
 		var b = hash[1];
 		var c = hash[2];
@@ -81,7 +83,7 @@ fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
 		var h = hash[7];
 
 		for (var j = 0u; j < 16u; j++){
-			w[j] = message[j];
+			w[j] = swap_endianess32(message[chunk_index + j]);
 		}
 
 		for (var j = 16u; j < 64u; j++){
@@ -112,13 +114,23 @@ fn sha256_80byte(m: array<u32, 20>) -> array<u32, 8> {
 		hash[7] += h;
 	}
 
+	hash[0] = swap_endianess32(hash[0]);
+	hash[1] = swap_endianess32(hash[1]);
+	hash[2] = swap_endianess32(hash[2]);
+	hash[3] = swap_endianess32(hash[3]);
+	hash[4] = swap_endianess32(hash[4]);
+	hash[5] = swap_endianess32(hash[5]);
+	hash[6] = swap_endianess32(hash[6]);
+	hash[7] = swap_endianess32(hash[7]);
+
 	return hash;
 }
 
 fn sha256_32byte(m: array<u32, 8>) -> array<u32, 8> {
+	// padding
 	var message = array<u32, 16>(
 		m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
-		0x80000000, 0, 0, 0, 0, 0, 0, 0
+		0x00000080, 0, 0, 0, 0, 0, 0, swap_endianess32(256u)
 	);
 
 	var hash = array<u32, 8>(
@@ -140,7 +152,7 @@ fn sha256_32byte(m: array<u32, 8>) -> array<u32, 8> {
 	var w: array<u32, 64> = array<u32, 64>();
 
 	for (var j = 0u; j < 16u; j++){
-		w[j] = message[j];
+		w[j] = swap_endianess32(message[j]);
 	}
 
 	for (var j = 16u; j < 64u; j++){
@@ -179,15 +191,91 @@ fn sha256_32byte(m: array<u32, 8>) -> array<u32, 8> {
 	hash[6] += g;
 	hash[7] += h;
 
+	hash[0] = swap_endianess32(hash[0]);
+	hash[1] = swap_endianess32(hash[1]);
+	hash[2] = swap_endianess32(hash[2]);
+	hash[3] = swap_endianess32(hash[3]);
+	hash[4] = swap_endianess32(hash[4]);
+	hash[5] = swap_endianess32(hash[5]);
+	hash[6] = swap_endianess32(hash[6]);
+	hash[7] = swap_endianess32(hash[7]);
+
 	return hash;
+}
+
+/// Checks if hash < target
+fn meets_target(hash: array<u32, 8>, targ: array<u32, 8>) -> bool {
+	if (hash[7] < targ[7]) {
+		return true;
+	} else if (hash[7] > targ[7]) {
+		return false;
+	}
+
+	if (hash[6] < targ[6]) {
+		return true;
+	} else if (hash[6] > targ[6]) {
+		return false;
+	}
+
+	if (hash[5] < targ[5]) {
+		return true;
+	} else if (hash[5] > targ[5]) {
+		return false;
+	}
+
+	if (hash[4] < targ[4]) {
+		return true;
+	} else if (hash[4] > targ[4]) {
+		return false;
+	}
+
+	if (hash[3] < targ[3]) {
+		return true;
+	} else if (hash[3] > targ[3]) {
+		return false;
+	}
+
+	if (hash[2] < targ[2]) {
+		return true;
+	} else if (hash[2] > targ[2]) {
+		return false;
+	}
+
+	if (hash[1] < targ[1]) {
+		return true;
+	} else if (hash[1] > targ[1]) {
+		return false;
+	}
+
+	if (hash[0] <= targ[0]) {
+		return true;
+	}
+
+	return false;
 }
 
 @compute @workgroup_size(workgroupSize, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+	if (global_id.x >= 1) {
+		return;
+	}
+
 	var localHeader: array<u32, 20>;
 
 	for (var i = 0u; i < 20u; i++) {
 		localHeader[i] = inputHeader[i];
+	}
+
+	var hash = array<u32, 8> (
+		0, 0xffffffff, 0, 0, 0, 0, 0, 0
+	);//sha256_32byte(sha256_80byte(localHeader));
+
+	for (var i = 0u; i < 8u; i++) {
+		outputHeader[i] = hash[i];
+	}
+
+	for (var i = 9u; i < (9u + 8u); i++) {
+		outputHeader[i] = inputTarget[i - 9];
 	}
 
 	let index: u32 = global_id.x;
@@ -199,7 +287,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 		// double sha256
 		let hash = sha256_32byte(sha256_80byte(localHeader));
 
-		if (hash[7] < inputTarget[7] || (hash[7] == inputTarget[7] && hash[6] < inputTarget[6])) {
+		if (meets_target(hash, inputTarget)) {
 			outputHeader = localHeader;
 			atomicStore(&atomicFlag, 1u);
 

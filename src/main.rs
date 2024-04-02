@@ -1,10 +1,10 @@
 #![feature(never_type)]
+#![feature(const_trait_impl)]
 
 use clap::Parser;
 
 mod block;
 mod gpu;
-mod hash;
 mod miner;
 mod rpc;
 
@@ -20,12 +20,13 @@ struct Args {
 	/// Defaults to the RPC_ADDRESS environment variable if not set
 	#[arg(short, long)]
 	pub address: Option<String>,
+	/// Use the GPU for mining
+	#[arg(short, long)]
+	pub gpu: bool,
 }
 
 fn main() -> Result<!, rpc::Error> {
-	hash::main();
-	panic!();
-	/*let args = Args::parse();
+	let args = Args::parse();
 
 	let username = args
 		.username
@@ -51,7 +52,7 @@ fn main() -> Result<!, rpc::Error> {
 	let rpc = rpc::Client::new(address, &username, &password);
 
 	let address = rpc.get_new_address()?;
-	let miner = miner::Miner::new(rpc, address);
+	let miner = miner::Miner::new(rpc, address, args.gpu);
 
-	miner.mine()*/
+	miner.mine()
 }
