@@ -13,8 +13,10 @@ pub struct Miner {
 }
 
 impl Miner {
-	pub fn new(rpc: rpc::Client, wallet_address: String, gpu: bool) -> Self {
-		let wallet_address = bitcoin::Address::from_str(&wallet_address)
+	/// # Panics
+	/// Panics if the wallet address is invalid.
+	pub fn new(rpc: rpc::Client, wallet_address: &str, gpu: bool) -> Self {
+		let wallet_address = bitcoin::Address::from_str(wallet_address)
 			.expect("invalid address")
 			.require_network(bitcoin::Network::Bitcoin)
 			.expect("invalid network");
@@ -34,17 +36,20 @@ impl Miner {
 		}
 	}
 
+	/// # Errors
+	/// Returns an error if the RPC client fails to get the block template or submit the block.
+	/// An error is also returned if the GPU hasher fails to process the block.
 	pub fn mine(&self) -> Result<!, Error> {
 		let (tx, rx) = mpsc::channel::<block::Template>();
 		let mut template = self.rpc.get_block_template(None)?;
 		let poll_id = std::mem::take(&mut template.longpoll_id);
 
 		std::thread::scope(|s| {
-			s.spawn(|| self.poll_new_block(tx, poll_id));
+			s.spawn(|| self.poll_new_block(&tx, poll_id));
 
 			if let Some(hasher) = &self.gpu {
 				loop {
-					let block = self.mine_block_gpu(hasher, template, &rx)?;
+					let block = self.mine_block_gpu(hasher, &template, &rx)?;
 
 					self.rpc.submit_block(&block)?;
 
@@ -52,7 +57,7 @@ impl Miner {
 				}
 			} else {
 				loop {
-					let block = self.mine_block(template, &rx);
+					let block = self.mine_block(&template, &rx);
 
 					self.rpc.submit_block(&block)?;
 
@@ -62,10 +67,12 @@ impl Miner {
 		})
 	}
 
+	/// # Errors
+	/// Returns an error if the GPU hasher fails to process the block.
 	pub fn mine_block_gpu(
 		&self,
-		hasher: &gpu::Hasher,
-		template: block::Template,
+		gpu: &gpu::Hasher,
+		template: &block::Template,
 		new: &mpsc::Receiver<block::Template>,
 	) -> Result<bitcoin::Block, Error> {
 		let (mut target, _, mut block) = self.process_template(template);
@@ -73,17 +80,19 @@ impl Miner {
 
 		let output_block = loop {
 			let start = std::time::Instant::now();
-			let output_block = hasher.process(encoded_header, target.to_byte_array())?;
+			let output_block = gpu.process(encoded_header, target.to_byte_array())?;
 
-			// we search through 2^32 nonces in each `process` call
-			let hashes = u32::MAX - u32::MIN;
-			let elapsed = start.elapsed();
+			if tracing::enabled!(tracing::Level::INFO) {
+				// we search through 2^32 nonces in each `process` call
+				let hashes = u32::MAX - u32::MIN;
+				let elapsed = start.elapsed();
 
-			tracing::info!(
-				rate = hashes as f64 / elapsed.as_secs_f64(),
-				rate_pretty = format_hash_rate(hashes, elapsed),
-				"hash rate"
-			);
+				tracing::info!(
+					rate = f64::from(hashes) / elapsed.as_secs_f64(),
+					rate_pretty = format_hash_rate(hashes, elapsed),
+					"hash rate"
+				);
+			}
 
 			// if it's not all zeros, we found one!
 			if output_block != [0; 80] {
@@ -94,7 +103,7 @@ impl Miner {
 
 			// if there's a new block to mine, switch to it
 			if let Ok(template) = message {
-				(target, _, block) = self.process_template(template);
+				(target, _, block) = self.process_template(&template);
 				encoded_header = encode_block_header(&block.header, 0);
 			} else {
 				// otherwise, increment timestamp and try again
@@ -108,7 +117,7 @@ impl Miner {
 
 	pub fn mine_block(
 		&self,
-		template: block::Template,
+		template: &block::Template,
 		new: &mpsc::Receiver<block::Template>,
 	) -> bitcoin::Block {
 		let (mut target, mut nonce_range, mut block) = self.process_template(template);
@@ -126,14 +135,16 @@ impl Miner {
 				hash < target
 			});
 
-			let hashes = nonce_range.end - nonce_range.start;
-			let elapsed = start.elapsed();
+			if tracing::enabled!(tracing::Level::INFO) {
+				let hashes = nonce_range.end - nonce_range.start;
+				let elapsed = start.elapsed();
 
-			tracing::info!(
-				rate = hashes as f64 / elapsed.as_secs_f64(),
-				rate_pretty = format_hash_rate(hashes, elapsed),
-				"hash rate"
-			);
+				tracing::info!(
+					rate = f64::from(hashes) / elapsed.as_secs_f64(),
+					rate_pretty = format_hash_rate(hashes, elapsed),
+					"hash rate"
+				);
+			}
 
 			if let Some(nonce) = nonce {
 				block.header.nonce = nonce;
@@ -150,12 +161,12 @@ impl Miner {
 			let message = new.try_recv();
 
 			if let Ok(template) = message {
-				(target, nonce_range, block) = self.process_template(template);
+				(target, nonce_range, block) = self.process_template(&template);
 			}
 		}
 	}
 
-	fn poll_new_block(&self, template_tx: mpsc::Sender<block::Template>, mut poll_id: String) {
+	fn poll_new_block(&self, template_tx: &mpsc::Sender<block::Template>, mut poll_id: String) {
 		loop {
 			let template = self.rpc.get_block_template(Some(&poll_id));
 
@@ -169,7 +180,7 @@ impl Miner {
 
 	fn process_template(
 		&self,
-		template: block::Template,
+		template: &block::Template,
 	) -> (bitcoin::BlockHash, Range<u32>, bitcoin::Block) {
 		let target = bitcoin::BlockHash::from_byte_array(template.target);
 		let nonce_range = template.nonce_range.clone();
@@ -178,7 +189,7 @@ impl Miner {
 		(target, nonce_range, block)
 	}
 
-	fn create_block(&self, template: block::Template) -> bitcoin::Block {
+	fn create_block(&self, template: &block::Template) -> bitcoin::Block {
 		let script_pubkey = self.wallet_address.script_pubkey();
 
 		// Creates the coinbase transaction
@@ -212,7 +223,7 @@ impl Miner {
 }
 
 fn format_hash_rate(hashes: u32, elapsed: std::time::Duration) -> String {
-	let hashes = hashes as f64;
+	let hashes = f64::from(hashes);
 	let elapsed = elapsed.as_secs_f64();
 
 	let mut rate = hashes / elapsed;
@@ -220,24 +231,24 @@ fn format_hash_rate(hashes: u32, elapsed: std::time::Duration) -> String {
 	// if the rate is less than 1000, we can just return it
 	// otherwise, format with the higher ones
 	if rate < 1_000.0 {
-		return format!("{:.2} H/s", rate);
+		return format!("{rate:.2} H/s");
 	}
 
 	rate /= 1_000.0;
 
 	if rate < 1_000.0 {
-		return format!("{:.2} KH/s", rate);
+		return format!("{rate:.2} KH/s");
 	}
 
 	rate /= 1_000.0;
 
 	if rate < 1_000.0 {
-		return format!("{:.2} MH/s", rate);
+		return format!("{rate:.2} MH/s");
 	}
 
 	rate /= 1_000.0;
 
-	format!("{:.2} GH/s", rate)
+	format!("{rate:.2} GH/s")
 }
 
 fn encode_block_header(header: &bitcoin::block::Header, nonce: u32) -> [u8; 80] {

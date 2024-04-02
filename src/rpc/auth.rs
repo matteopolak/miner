@@ -8,7 +8,7 @@ impl Basic {
 	pub fn new(username: &str, password: &str) -> Self {
 		let content = format!(
 			"Basic {}",
-			STANDARD.encode(format!("{}:{}", username, password))
+			STANDARD.encode(format!("{username}:{password}"))
 		);
 
 		Self { content }

@@ -10,6 +10,7 @@ use tracing::instrument;
 use crate::block;
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Client {
 	pub http: ureq::Agent,
 	pub url: String,
@@ -56,6 +57,11 @@ impl Client {
 		Self { http, url }
 	}
 
+	/// # Errors
+	/// Returns an error if the block fails to encode.
+	///
+	/// # Panics
+	/// Panics if the block fails to encode.
 	pub fn submit_block(&self, block: &bitcoin::Block) -> Result<(), Error> {
 		// TODO: pre-allocate buffer
 		let mut data = vec![];
@@ -69,6 +75,8 @@ impl Client {
 		})
 	}
 
+	/// # Errors
+	/// Returns an error if the request fails.
 	pub fn get_block_template(&self, poll_id: Option<&str>) -> Result<block::Template, Error> {
 		self.request(&Request {
 			jsonrpc: "1.0",
@@ -120,6 +128,8 @@ macro_rules! impl_basic_rpc {
 	($($name:ident, $method:literal -> $result:path),*) => {
 		$(
 			impl $crate::rpc::Client {
+				/// # Errors
+				/// Returns an error if the request fails.
 				pub fn $name(&self) -> Result<$result, $crate::rpc::Error> {
 					self.request(&Request {
 						jsonrpc: "1.0",

@@ -35,7 +35,7 @@ fn main() -> Result<!, Error> {
 	let rpc = rpc::Client::new(args.address, &args.username, &args.password);
 
 	let wallet_address = rpc.get_new_address()?;
-	let miner = miner::Miner::new(rpc, wallet_address, args.gpu);
+	let miner = miner::Miner::new(rpc, &wallet_address, args.gpu);
 
 	miner.mine()
 }

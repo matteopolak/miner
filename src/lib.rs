@@ -1,4 +1,5 @@
 #![feature(never_type)]
+#![warn(clippy::pedantic)]
 
 pub mod block;
 pub mod error;

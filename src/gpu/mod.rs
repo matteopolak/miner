@@ -33,7 +33,7 @@ impl fmt::Display for Error {
 		match self {
 			Self::NoAdapter => write!(f, "no adapter found"),
 			Self::NoDevice => write!(f, "no device found"),
-			Self::BufferAsync(e) => write!(f, "buffer async error: {}", e),
+			Self::BufferAsync(e) => write!(f, "buffer async error: {e}"),
 		}
 	}
 }
@@ -41,6 +41,8 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl Hasher {
+	/// # Errors
+	/// Returns an error if the GPU hasher fails to initialize.
 	pub fn new() -> Result<Self, Error> {
 		let instance = wgpu::Instance::default();
 
@@ -114,10 +116,12 @@ impl Hasher {
 		})
 	}
 
+	/// # Errors
+	/// Returns an error if the buffer fails to map.
 	pub fn process(&self, block: [u8; 80], target: [u8; 32]) -> Result<[u8; 80], Error> {
 		let command = self.create_command_buffer(block, target);
-
 		let idx = self.queue.submit(Some(command));
+
 		self.wait_for(idx).map_err(Error::BufferAsync)
 	}
 

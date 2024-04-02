@@ -12,9 +12,9 @@ pub enum Error {
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Gpu(e) => write!(f, "gpu error: {}", e),
-			Self::Rpc(e) => write!(f, "rpc error: {}", e),
-			Self::Bitcoin(e) => write!(f, "bitcoin error: {}", e),
+			Self::Gpu(e) => write!(f, "gpu error: {e}"),
+			Self::Rpc(e) => write!(f, "rpc error: {e}"),
+			Self::Bitcoin(e) => write!(f, "bitcoin error: {e}"),
 		}
 	}
 }
