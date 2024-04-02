@@ -54,7 +54,7 @@ impl Miner {
 			// TODO: reuse the state of the block, only hash the nonce at the end
 			let nonce = nonce_range.clone().into_par_iter().find_any(|&nonce| {
 				let mut encoded_header = encoded_header;
-				encoded_header[76..80].copy_from_slice(&nonce.to_le_bytes());
+				encoded_header[68..72].copy_from_slice(&nonce.to_le_bytes());
 
 				let hash = bitcoin::BlockHash::hash(&encoded_header);
 

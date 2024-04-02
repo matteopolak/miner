@@ -3,6 +3,8 @@
 use clap::Parser;
 
 mod block;
+mod gpu;
+mod hash;
 mod miner;
 mod rpc;
 
@@ -21,7 +23,9 @@ struct Args {
 }
 
 fn main() -> Result<!, rpc::Error> {
-	let args = Args::parse();
+	hash::main();
+	panic!();
+	/*let args = Args::parse();
 
 	let username = args
 		.username
@@ -49,5 +53,5 @@ fn main() -> Result<!, rpc::Error> {
 	let address = rpc.get_new_address()?;
 	let miner = miner::Miner::new(rpc, address);
 
-	miner.mine()
+	miner.mine()*/
 }
