@@ -1,3 +1,5 @@
+#![feature(never_type)]
+
 use clap::Parser;
 
 mod block;
@@ -18,8 +20,7 @@ struct Args {
 	pub address: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
 	let args = Args::parse();
 
 	let username = args
@@ -37,11 +38,10 @@ async fn main() {
 		.or_else(|| std::env::var("RPC_ADDRESS").ok())
 		.expect("RPC_ADDRESS environment variable is not set");
 
-	let rpc = rpc::Client::new(&address, &username, &password).unwrap();
+	let rpc = rpc::Client::new(address, &username, &password);
 
-	let address = rpc.get_new_address().await.unwrap();
+	let address = rpc.get_new_address().unwrap();
 	let miner = miner::Miner::new(rpc, address);
 
-	//println!("{:?}", miner.rpc.get_block_template().await);
-	miner.mine().await.unwrap();
+	miner.mine().unwrap();
 }

@@ -1,6 +1,7 @@
+use std::io;
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use bitcoin::consensus::Encodable as _;
-use reqwest::{header, IntoUrl};
 use serde::{de, Deserialize, Serialize};
 use tracing::instrument;
 
@@ -8,8 +9,8 @@ use crate::block;
 
 #[derive(Debug, Clone)]
 pub struct Client {
-	pub http: reqwest::Client,
-	pub url: reqwest::Url,
+	pub http: ureq::Agent,
+	pub url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,6 +22,10 @@ pub enum Param<'r> {
 		capabilities: Option<&'r [&'r str]>,
 	},
 	String(&'r str),
+	Longpoll {
+		#[serde(rename = "longpollid")]
+		id: &'r str,
+	},
 }
 
 #[derive(Debug, Serialize)]
@@ -45,8 +50,8 @@ pub struct Error {
 	pub message: String,
 }
 
-impl From<reqwest::Error> for Error {
-	fn from(value: reqwest::Error) -> Self {
+impl From<io::Error> for Error {
+	fn from(value: io::Error) -> Self {
 		Self {
 			code: 0,
 			message: value.to_string(),
@@ -54,29 +59,50 @@ impl From<reqwest::Error> for Error {
 	}
 }
 
-impl Client {
-	pub fn new<U: IntoUrl>(url: U, username: &str, password: &str) -> Result<Self, reqwest::Error> {
-		let url = url.into_url()?;
-		let mut headers = header::HeaderMap::new();
+impl From<ureq::Error> for Error {
+	fn from(value: ureq::Error) -> Self {
+		Self {
+			code: 0,
+			message: value.to_string(),
+		}
+	}
+}
 
-		headers.insert(
-			header::AUTHORIZATION,
-			header::HeaderValue::try_from(format!(
-				"Basic {}",
-				STANDARD.encode(format!("{}:{}", username, password))
-			))
-			.expect("authorization header contains invalid characters"),
+struct BasicAuth {
+	content: String,
+}
+
+impl BasicAuth {
+	pub fn new(username: &str, password: &str) -> Self {
+		let content = format!(
+			"Basic {}",
+			STANDARD.encode(format!("{}:{}", username, password))
 		);
 
-		let http = reqwest::Client::builder()
-			.default_headers(headers)
-			.build()
-			.expect("failed to build http client");
+		Self { content }
+	}
+}
 
-		Ok(Self { http, url })
+impl ureq::Middleware for BasicAuth {
+	fn handle(
+		&self,
+		request: ureq::Request,
+		next: ureq::MiddlewareNext,
+	) -> Result<ureq::Response, ureq::Error> {
+		next.handle(request.set("Authorization", &self.content))
+	}
+}
+
+impl Client {
+	pub fn new(url: String, username: &str, password: &str) -> Self {
+		let http = ureq::AgentBuilder::new()
+			.middleware(BasicAuth::new(username, password))
+			.build();
+
+		Self { http, url }
 	}
 
-	pub async fn submit_block(&self, block: &bitcoin::Block) -> Result<(), Error> {
+	pub fn submit_block(&self, block: &bitcoin::Block) -> Result<(), Error> {
 		let mut data = vec![];
 		block.consensus_encode(&mut data).unwrap();
 
@@ -86,37 +112,33 @@ impl Client {
 			method: "submitblock",
 			params: Some(&[Param::String(&hex::encode(data))]),
 		})
-		.await
 	}
 
-	pub async fn get_block_template(&self) -> Result<block::Template, Error> {
+	pub fn get_block_template(&self, poll_id: Option<&str>) -> Result<block::Template, Error> {
 		self.request(&Request {
 			jsonrpc: "1.0",
 			id: env!("CARGO_PKG_NAME"),
 			method: "getblocktemplate",
-			params: Some(&[Param::Option {
-				rules: Some(&["segwit"]),
-				capabilities: Some(&["coinbasetxn", "workid", "coinbase/append"]),
-			}]),
+			params: Some(&[poll_id.map_or_else(
+				|| Param::Option {
+					rules: Some(&["segwit"]),
+					capabilities: Some(&["coinbase/append", "longpoll"]),
+				},
+				|id| Param::Longpoll { id },
+			)]),
 		})
-		.await
 	}
 
 	#[instrument(name = "rpc", skip(self))]
-	async fn request<T>(&self, request: &Request<'_>) -> Result<T, Error>
+	fn request<T>(&self, request: &Request<'_>) -> Result<T, Error>
 	where
 		T: de::DeserializeOwned,
 	{
-		let response = self
-			.http
-			.post(self.url.clone())
-			.json(request)
-			.send()
-			.await?;
+		let response = self.http.post(&self.url).send_json(request)?;
 
 		tracing::Span::current().record("status", &response.status().to_string());
 
-		let body = response.json::<Response<T>>().await?;
+		let body = response.into_json::<Response<T>>()?;
 
 		let response = match body {
 			Response {
@@ -143,14 +165,13 @@ macro_rules! impl_basic_rpc {
 	($($name:ident, $method:literal -> $result:path),*) => {
 		$(
 			impl $crate::rpc::Client {
-				pub async fn $name(&self) -> Result<$result, $crate::rpc::Error> {
+				pub fn $name(&self) -> Result<$result, $crate::rpc::Error> {
 					self.request(&Request {
 						jsonrpc: "1.0",
 						id: env!("CARGO_PKG_NAME"),
 						method: $method,
 						params: None,
 					})
-					.await
 				}
 			}
 		)*
@@ -163,6 +184,5 @@ pub struct NetworkInfo {
 }
 
 impl_basic_rpc! {
-	get_network_info, "getnetworkinfo" -> NetworkInfo,
 	get_new_address, "getnewaddress" -> String
 }

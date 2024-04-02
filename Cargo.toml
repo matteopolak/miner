@@ -8,11 +8,7 @@ base64 = "0.22"
 bitcoin = "0.31"
 clap = { version = "4", features = ["derive"] }
 hex = { version = "0.4", features = ["serde"] }
+rayon = "1"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tracing = "0.1.40"
-
-[dependencies.reqwest]
-version = "0.12"
-default-features = false
-features = ["json"]
+tracing = "0.1"
+ureq = { version = "2", features = ["json"] }

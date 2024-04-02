@@ -1,6 +1,6 @@
-use std::str::FromStr as _;
+use std::{ops::Range, str::FromStr as _, sync::mpsc};
 
-use bitcoin::{consensus::Encodable, hashes::Hash as _, Block};
+use bitcoin::hashes::Hash as _;
 
 use crate::{block, rpc};
 
@@ -21,28 +21,76 @@ impl Miner {
 		Self { rpc, address }
 	}
 
-	pub async fn mine(&self) -> Result<(), rpc::Error> {
-		let template = self.rpc.get_block_template().await?;
-		let target = bitcoin::BlockHash::from_byte_array(template.target);
-		let nonce_range = template.nonce_range.clone();
+	pub fn mine(&self) -> Result<!, rpc::Error> {
+		let (tx, rx) = mpsc::channel::<block::Template>();
+		let mut template = self.rpc.get_block_template(None)?;
+		let poll_id = std::mem::take(&mut template.longpoll_id);
 
-		let mut block = self.create_block(template);
+		std::thread::scope(|s| {
+			s.spawn(|| self.poll_new_block(tx, poll_id));
+		});
 
-		for nonce in nonce_range {
-			block.header.nonce = nonce;
+		loop {
+			let block = self.mine_block(template, &rx);
 
-			let hash = block.block_hash();
+			self.rpc.submit_block(&block)?;
 
-			if hash < target {
-				tracing::info!(hash = ?hash, "found block hash");
+			template = self.rpc.get_block_template(None)?;
+		}
+	}
 
-				self.rpc.submit_block(&block).await?;
+	pub fn mine_block(
+		&self,
+		template: block::Template,
+		new: &mpsc::Receiver<block::Template>,
+	) -> bitcoin::Block {
+		let (mut target, mut nonce_range, mut block) = self.process_template(template);
 
-				break;
+		loop {
+			for nonce in nonce_range.clone() {
+				block.header.nonce = nonce;
+
+				let hash = block.block_hash();
+
+				if hash < target {
+					tracing::info!(hash = ?hash, "found block hash");
+
+					return block;
+				}
+			}
+
+			// if we didn't find a valid nonce, increase the timestamp
+			block.header.time += 1;
+
+			let message = new.try_recv();
+
+			if let Ok(template) = message {
+				(target, nonce_range, block) = self.process_template(template);
 			}
 		}
+	}
 
-		Ok(())
+	fn poll_new_block(&self, template_tx: mpsc::Sender<block::Template>, mut poll_id: String) {
+		loop {
+			let template = self.rpc.get_block_template(Some(&poll_id));
+
+			if let Ok(mut template) = template {
+				poll_id = std::mem::take(&mut template.longpoll_id);
+
+				let _ = template_tx.send(template);
+			}
+		}
+	}
+
+	fn process_template(
+		&self,
+		template: block::Template,
+	) -> (bitcoin::BlockHash, Range<u32>, bitcoin::Block) {
+		let target = bitcoin::BlockHash::from_byte_array(template.target);
+		let nonce_range = template.nonce_range.clone();
+		let block = self.create_block(template);
+
+		(target, nonce_range, block)
 	}
 
 	fn create_block(&self, template: block::Template) -> bitcoin::Block {
