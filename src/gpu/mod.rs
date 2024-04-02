@@ -177,7 +177,6 @@ impl Hasher {
 	}
 
 	fn request_adapter(instance: &wgpu::Instance) -> Result<wgpu::Adapter, Error> {
-		wgpu::Instance::default();
 		block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
 			.ok_or(Error::NoAdapter)
 	}
