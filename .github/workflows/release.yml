@@ -1,0 +1,79 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TOOLCHAIN: nightly
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the version
+        id: get_version
+        run: echo "version=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+      - name: Build changelog
+        id: github_release
+        uses: mikepenz/release-changelog-builder-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          configuration: .release.json
+          commitMode: true
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          name: ${{ steps.get_version.outputs.version }} 🎉
+          body: ${{ steps.github_release.outputs.changelog }}
+  create-binaries:
+    name: release ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            archive: zip
+            os: windows-latest
+            bin: .exe
+            ext: .zip
+          - target: x86_64-unknown-linux-gnu
+            archive: tar
+            ext: .tar.gz
+            os: ubuntu-latest
+            bin: ''
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+      - name: Move release files
+        run: |
+          mkdir release
+          mv target/release/miner${{ matrix.bin }} release/miner${{ matrix.bin }}
+          cp README.md release/README.md
+          cp LICENSE release/LICENSE
+      - name: Archive release
+        uses: thedoctor0/zip-release@main
+        with:
+          type: ${{ matrix.archive }}
+          filename: release${{ matrix.ext }}
+          directory: release
+          path: '*'
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: release/release${{ matrix.ext }}
+          asset_name: ${{ matrix.target }}${{ matrix.ext }}
+          tag: ${{ github.ref }}
+          overwrite: false
