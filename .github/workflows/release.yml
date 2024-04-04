@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  CARGO_TOOLCHAIN: nightly
+  RUSTUP_TOOLCHAIN: nightly
 
 jobs:
   create-release:
