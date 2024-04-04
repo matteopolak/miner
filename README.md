@@ -2,7 +2,7 @@
 
 [![test status](https://github.com/matteopolak/miner/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![release status](https://github.com/matteopolak/miner/actions/workflows/release.yml/badge.svg)](.github/workflows/release.yml)
-[![license](https://img.shields.io/github/license/matteopolak/miner.svg)](LICENSE)
+[![license](https://img.shields.io/github/license/matteopolak/miner.svg?)](LICENSE)
 
 A GPU and CPU solo miner for Bitcoin.
 
